@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MindBridge Africa — Statistiques d'impact</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, collection, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCN-V_CcCbgtlPMhE-8ZPjQDxuRi5kK6EI",
+      authDomain: "mindlink-ff9f9.firebaseapp.com",
+      projectId: "mindlink-ff9f9",
+      storageBucket: "mindlink-ff9f9.firebasestorage.app",
+      messagingSenderId: "242298766592",
+      appId: "1:242298766592:web:178bfdbc95130e0fb61fe5"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    let chartJour = null;
+    let chartCategories = null;
+
+    window.onload = () => {
+      const q = query(collection(db, "conversations"), orderBy("dernierContact", "desc"));
+
+      onSnapshot(q, (snapshot) => {
+        const conversations = [];
+        snapshot.forEach(doc => {
+          if (doc.id !== 'test') {
+            conversations.push({ id: doc.id, ...doc.data() });
+          }
+        });
+        calculerStats(conversations);
+      });
+    };
+
+    function calculerStats(conversations) {
+      const total = conversations.length;
+      const urgences = conversations.filter(c => c.urgence).length;
+      const orientation = conversations.filter(c => c.orientation_psy && !c.urgence).length;
+      const prisEnCharge = conversations.filter(c => c.priseEnCharge).length;
+      const normaux = total - urgences - orientation;
+      const tauxDetresse = total > 0 ? Math.round(((urgences + orientation) / total) * 100) : 0;
+
+      // Mettre à jour les chiffres
+      document.getElementById('statTotal').textContent = total;
+      document.getElementById('statUrgences').textContent = urgences;
+      document.getElementById('statOrientation').textContent = orientation;
+      document.getElementById('statPrisEnCharge').textContent = prisEnCharge;
+      document.getElementById('statTaux').textContent = tauxDetresse + '%';
+      document.getElementById('statNormaux').textContent = normaux;
+
+      // Barre de progression
+      document.getElementById('barreUrgence').style.width = total > 0 ? (urgences/total*100) + '%' : '0%';
+      document.getElementById('barreOrientation').style.width = total > 0 ? (orientation/total*100) + '%' : '0%';
+      document.getElementById('barreNormaux').style.width = total > 0 ? (normaux/total*100) + '%' : '0%';
+
+      // Graphique par jour
+      const parJour = {};
+      conversations.forEach(c => {
+        if (c.dernierContact) {
+          const date = c.dernierContact.toDate ? 
+            c.dernierContact.toDate().toLocaleDateString('fr-FR') : 
+            new Date(c.dernierContact).toLocaleDateString('fr-FR');
+          parJour[date] = (parJour[date] || 0) + 1;
+        }
+      });
+
+      const jours = Object.keys(parJour).slice(-7);
+      const valeurs = jours.map(j => parJour[j]);
+
+      if (chartJour) chartJour.destroy();
+      const ctx1 = document.getElementById('chartJour').getContext('2d');
+      chartJour = new Chart(ctx1, {
+        type: 'line',
+        data: {
+          labels: jours,
+          datasets: [{
+            label: 'Patients par jour',
+            data: valeurs,
+            borderColor: '#00c896',
+            backgroundColor: 'rgba(0,200,150,0.1)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointBackgroundColor: '#00c896',
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { labels: { color: '#e6edf3' } }
+          },
+          scales: {
+            x: { ticks: { color: '#7d8fa8' }, grid: { color: '#2a3440' } },
+            y: { ticks: { color: '#7d8fa8', stepSize: 1 }, grid: { color: '#2a3440' } }
+          }
+        }
+      });
+
+      // Graphique catégories
+      if (chartCategories) chartCategories.destroy();
+      const ctx2 = document.getElementById('chartCategories').getContext('2d');
+      chartCategories = new Chart(ctx2, {
+        type: 'doughnut',
+        data: {
+          labels: ['Conversations normales', 'Orientation psy', 'Urgences critiques'],
+          datasets: [{
+            data: [normaux, orientation, urgences],
+            backgroundColor: ['#00c896', '#f5a623', '#ff4f5a'],
+            borderWidth: 0,
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { color: '#e6edf3', padding: 16 }
+            }
+          }
+        }
+      });
+
+      // Mettre à jour le timestamp
+      document.getElementById('lastUpdate').textContent = 
+        'Mis à jour : ' + new Date().toLocaleTimeString('fr-FR');
+    }
+  </script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface2: #1e2630;
+      --border: #2a3440;
+      --accent: #00c896;
+      --accent-dim: rgba(0,200,150,0.12);
+      --urgent: #ff4f5a;
+      --urgent-dim: rgba(255,79,90,0.12);
+      --warn: #f5a623;
+      --warn-dim: rgba(245,166,35,0.12);
+      --text: #e6edf3;
+      --text-muted: #7d8fa8;
+      --serif: 'DM Serif Display', serif;
+      --sans: 'Inter', sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; min-height: 100vh; }
+
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+    .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .logo-icon { width: 32px; height: 32px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+    .logo-text { font-family: var(--serif); font-size: 18px; color: var(--text); }
+    .logo-text span { color: var(--accent); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; display: inline-block; margin-right: 6px; }
+    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+
+    .nav-links { display: flex; gap: 16px; }
+    .nav-link { color: var(--text-muted); text-decoration: none; font-size: 13px; padding: 6px 12px; border-radius: 6px; transition: background 0.15s; }
+    .nav-link:hover { background: var(--surface2); color: var(--text); }
+    .nav-link.active { background: var(--accent-dim); color: var(--accent); }
+
+    .main { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+    .page-title { font-family: var(--serif); font-size: 28px; font-weight: 400; margin-bottom: 4px; }
+    .page-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 32px; display: flex; align-items: center; gap: 8px; }
+
+    /* Cartes stats principales */
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+    .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; position: relative; overflow: hidden; }
+    .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+    .stat-card.vert::before { background: var(--accent); }
+    .stat-card.rouge::before { background: var(--urgent); }
+    .stat-card.orange::before { background: var(--warn); }
+    .stat-card.bleu::before { background: #4a9eff; }
+    .stat-card.gris::before { background: var(--text-muted); }
+    .stat-card.violet::before { background: #9b59b6; }
+    .stat-icon { font-size: 28px; margin-bottom: 12px; }
+    .stat-number { font-family: var(--serif); font-size: 48px; font-weight: 300; line-height: 1; margin-bottom: 8px; }
+    .stat-number.vert { color: var(--accent); }
+    .stat-number.rouge { color: var(--urgent); }
+    .stat-number.orange { color: var(--warn); }
+    .stat-number.bleu { color: #4a9eff; }
+    .stat-number.gris { color: var(--text-muted); }
+    .stat-number.violet { color: #9b59b6; }
+    .stat-label { font-size: 13px; color: var(--text-muted); }
+    .stat-desc { font-size: 11px; color: var(--text-muted); margin-top: 4px; opacity: 0.7; }
+
+    /* Section graphiques */
+    .charts-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 32px; }
+    .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; }
+    .chart-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 20px; }
+
+    /* Barres de répartition */
+    .repartition-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin-bottom: 16px; }
+    .repartition-title { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 20px; }
+    .repartition-item { margin-bottom: 16px; }
+    .repartition-label { display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 13px; }
+    .repartition-bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+    .repartition-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+
+    /* Impact africain */
+    .impact-card { background: linear-gradient(135deg, rgba(0,200,150,0.08), rgba(0,100,200,0.05)); border: 1px solid rgba(0,200,150,0.2); border-radius: 14px; padding: 28px; margin-bottom: 32px; }
+    .impact-title { font-family: var(--serif); font-size: 20px; margin-bottom: 16px; }
+    .impact-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .impact-item { text-align: center; }
+    .impact-number { font-family: var(--serif); font-size: 32px; color: var(--accent); line-height: 1; margin-bottom: 4px; }
+    .impact-label { font-size: 12px; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+
+<header>
+  <a href="index.html" class="logo">
+    <div class="logo-icon">🧠</div>
+    <div class="logo-text">Mind<span>Bridge</span> Africa</div>
+  </a>
+  <div class="nav-links">
+    <a href="dashboard.html" class="nav-link">📊 Dashboard</a>
+    <a href="stats.html" class="nav-link active">📈 Statistiques</a>
+    <a href="index.html" class="nav-link">🌐 Site</a>
+  </div>
+</header>
+
+<div class="main">
+  <div class="page-title">Statistiques d'impact</div>
+  <div class="page-sub">
+    <span class="dot"></span>
+    Données en temps réel depuis Firebase
+    <span id="lastUpdate" style="margin-left:8px;opacity:0.6"></span>
+  </div>
+
+  <!-- Stats principales -->
+  <div class="stats-grid">
+    <div class="stat-card vert">
+      <div class="stat-icon">👥</div>
+      <div class="stat-number vert" id="statTotal">—</div>
+      <div class="stat-label">Patients aidés au total</div>
+      <div class="stat-desc">Depuis le lancement du projet</div>
+    </div>
+    <div class="stat-card rouge">
+      <div class="stat-icon">🚨</div>
+      <div class="stat-number rouge" id="statUrgences">—</div>
+      <div class="stat-label">Urgences détectées</div>
+      <div class="stat-desc">Interventions immédiates requises</div>
+    </div>
+    <div class="stat-card orange">
+      <div class="stat-icon">📋</div>
+      <div class="stat-number orange" id="statOrientation">—</div>
+      <div class="stat-label">Orientés vers un psy</div>
+      <div class="stat-desc">Suivi professionnel recommandé</div>
+    </div>
+    <div class="stat-card bleu">
+      <div class="stat-icon">👨‍⚕️</div>
+      <div class="stat-number bleu" id="statPrisEnCharge">—</div>
+      <div class="stat-label">Pris en charge par un psy</div>
+      <div class="stat-desc">Intervention humaine réalisée</div>
+    </div>
+    <div class="stat-card violet">
+      <div class="stat-icon">📊</div>
+      <div class="stat-number violet" id="statTaux">—</div>
+      <div class="stat-label">Taux de détresse détectée</div>
+      <div class="stat-desc">Patients nécessitant un suivi</div>
+    </div>
+    <div class="stat-card gris">
+      <div class="stat-icon">💬</div>
+      <div class="stat-number gris" id="statNormaux">—</div>
+      <div class="stat-label">Conversations normales</div>
+      <div class="stat-desc">Soutien psychologique de base</div>
+    </div>
+  </div>
+
+  <!-- Graphiques -->
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="chart-title">📈 Évolution des patients (7 derniers jours)</div>
+      <canvas id="chartJour" height="120"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title">🥧 Répartition des cas</div>
+      <canvas id="chartCategories"></canvas>
+    </div>
+  </div>
+
+  <!-- Barres de répartition -->
+  <div class="repartition-card">
+    <div class="repartition-title">📊 Répartition détaillée</div>
+    <div class="repartition-item">
+      <div class="repartition-label">
+        <span>🟢 Conversations normales</span>
+        <span id="pctNormaux">0%</span>
+      </div>
+      <div class="repartition-bar">
+        <div class="repartition-fill" id="barreNormaux" style="background:var(--accent);width:0%"></div>
+      </div>
+    </div>
+    <div class="repartition-item">
+      <div class="repartition-label">
+        <span>🟠 Orientation psychologue</span>
+        <span id="pctOrientation">0%</span>
+      </div>
+      <div class="repartition-bar">
+        <div class="repartition-fill" id="barreOrientation" style="background:var(--warn);width:0%"></div>
+      </div>
+    </div>
+    <div class="repartition-item">
+      <div class="repartition-label">
+        <span>🔴 Urgences critiques</span>
+        <span id="pctUrgence">0%</span>
+      </div>
+      <div class="repartition-bar">
+        <div class="repartition-fill" id="barreUrgence" style="background:var(--urgent);width:0%"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Impact africain -->
+  <div class="impact-card">
+    <div class="impact-title">🌍 Impact potentiel en Afrique</div>
+    <div class="impact-grid">
+      <div class="impact-item">
+        <div class="impact-number">1/4</div>
+        <div class="impact-label">Africains touchés par un trouble mental</div>
+      </div>
+      <div class="impact-item">
+        <div class="impact-number">90%</div>
+        <div class="impact-label">Sans accès à un professionnel</div>
+      </div>
+      <div class="impact-item">
+        <div class="impact-number">24h</div>
+        <div class="impact-label">Disponibilité de MindBridge</div>
+      </div>
+      <div class="impact-item">
+        <div class="impact-number">0 FCFA</div>
+        <div class="impact-label">Coût pour le patient</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  // Mettre à jour les pourcentages dans les barres
+  const observer = new MutationObserver(() => {
+    const total = parseInt(document.getElementById('statTotal').textContent) || 0;
+    const urgences = parseInt(document.getElementById('statUrgences').textContent) || 0;
+    const orientation = parseInt(document.getElementById('statOrientation').textContent) || 0;
+    const normaux = parseInt(document.getElementById('statNormaux').textContent) || 0;
+
+    if (total > 0) {
+      document.getElementById('pctNormaux').textContent = Math.round(normaux/total*100) + '%';
+      document.getElementById('pctOrientation').textContent = Math.round(orientation/total*100) + '%';
+      document.getElementById('pctUrgence').textContent = Math.round(urgences/total*100) + '%';
+    }
+  });
+
+  observer.observe(document.getElementById('statTotal'), { childList: true });
+</script>
+</body>
+</html>

@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MindBridge Africa — Dashboard Psychologue</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet" />
+  <!-- Firebase SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+    import { getFirestore, collection, onSnapshot, doc, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+    // ── Config Firebase ── REMPLACE PAR TES VRAIES VALEURS
+    const firebaseConfig = {
+      apiKey: "AIzaSyCN-V_CcCbgtlPMhE-8ZPjQDxuRi5kK6EI",
+      authDomain: "mindlink-ff9f9.firebaseapp.com",
+      projectId: "mindlink-ff9f9",
+      storageBucket: "mindlink-ff9f9.firebasestorage.app",
+      messagingSenderId: "242298766592",
+      appId: "1:242298766592:web:178bfdbc95130e0fb61fe5"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    // ── Écoute temps réel des conversations ──
+    window.onload = () => {
+      const q = query(collection(db, "conversations"), orderBy("dernierContact", "desc"), limit(50));
+
+      onSnapshot(q, (snapshot) => {
+        const conversations = [];
+        snapshot.forEach(doc => {
+          if (doc.id !== 'test') {
+            conversations.push({ id: doc.id, ...doc.data() });
+          }
+        });
+        afficherPatients(conversations);
+        mettreAJourStats(conversations);
+      });
+    };
+
+    // ── Charger les messages d'un patient ──
+    window.chargerMessages = async (userId) => {
+      const q = query(
+        collection(db, "conversations", userId, "messages"),
+        orderBy("timestamp", "asc"),
+        limit(100)
+      );
+
+      onSnapshot(q, (snapshot) => {
+        const messages = [];
+        snapshot.forEach(doc => messages.push(doc.data()));
+        afficherMessages(messages, userId);
+      });
+    };
+  </script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface2: #1e2630;
+      --border: #2a3440;
+      --accent: #00c896;
+      --accent-dim: rgba(0,200,150,0.12);
+      --urgent: #ff4f5a;
+      --urgent-dim: rgba(255,79,90,0.12);
+      --warn: #f5a623;
+      --warn-dim: rgba(245,166,35,0.12);
+      --text: #e6edf3;
+      --text-muted: #7d8fa8;
+      --text-dim: #4a5568;
+      --serif: 'DM Serif Display', serif;
+      --sans: 'Inter', sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; min-height: 100vh; display: flex; flex-direction: column; }
+
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; height: 56px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 100; }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-icon { width: 32px; height: 32px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+    .logo-text { font-family: var(--serif); font-size: 18px; }
+    .logo-text span { color: var(--accent); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 2s infinite; display: inline-block; margin-right: 6px; }
+    @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+    .psy-avatar { width: 32px; height: 32px; background: var(--accent-dim); border: 1px solid var(--accent); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; color: var(--accent); font-weight: 600; }
+
+    .layout { display: grid; grid-template-columns: 300px 1fr; flex: 1; height: calc(100vh - 56px); overflow: hidden; }
+
+    .sidebar { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
+    .sidebar-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 12px; }
+    .stats-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .stat-card { background: var(--surface2); border-radius: 8px; padding: 10px 8px; text-align: center; border: 1px solid var(--border); }
+    .stat-number { font-size: 20px; font-weight: 600; line-height: 1; }
+    .stat-number.urgent { color: var(--urgent); }
+    .stat-number.active { color: var(--accent); }
+    .stat-number.total { color: var(--text); }
+    .stat-label { font-size: 10px; color: var(--text-muted); margin-top: 4px; }
+
+    .patient-list { flex: 1; overflow-y: auto; padding: 8px; }
+    .patient-list::-webkit-scrollbar { width: 4px; }
+    .patient-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .section-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); padding: 8px 8px 4px; }
+
+    .patient-card { padding: 12px; border-radius: 10px; cursor: pointer; transition: background 0.15s; border: 1px solid transparent; margin-bottom: 4px; }
+    .patient-card:hover { background: var(--surface2); }
+    .patient-card.active { background: var(--accent-dim); border-color: rgba(0,200,150,0.3); }
+    .patient-card.urgent-card { background: var(--urgent-dim); border-color: rgba(255,79,90,0.3); animation: urgentPulse 3s infinite; }
+    @keyframes urgentPulse { 0%,100%{border-color:rgba(255,79,90,0.3)}50%{border-color:rgba(255,79,90,0.7)} }
+
+    .patient-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .patient-name-row { display: flex; align-items: center; gap: 8px; }
+    .avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+    .avatar.green { background: var(--accent-dim); color: var(--accent); }
+    .avatar.red { background: var(--urgent-dim); color: var(--urgent); }
+    .avatar.yellow { background: var(--warn-dim); color: var(--warn); }
+    .patient-name { font-weight: 500; font-size: 13px; }
+    .patient-id { font-size: 11px; color: var(--text-muted); }
+    .badge { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 20px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .badge.urgent { background: var(--urgent-dim); color: var(--urgent); }
+    .badge.new { background: var(--accent-dim); color: var(--accent); }
+    .badge.psy { background: var(--warn-dim); color: var(--warn); }
+    .patient-preview { font-size: 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .patient-time { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+
+    .main { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+    .chat-header { padding: 16px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--surface); }
+    .chat-patient-info { display: flex; align-items: center; gap: 12px; }
+    .chat-patient-name { font-weight: 600; font-size: 15px; }
+    .chat-patient-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+    .chat-actions { display: flex; gap: 8px; }
+    .btn { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; font-family: var(--sans); transition: opacity 0.15s; }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: var(--accent); color: #000; }
+    .btn-ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: var(--urgent-dim); color: var(--urgent); border: 1px solid rgba(255,79,90,0.3); }
+
+    .chat-body { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+    .chat-body::-webkit-scrollbar { width: 4px; }
+    .chat-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .message-row { display: flex; align-items: flex-end; gap: 8px; }
+    .message-row.assistant { justify-content: flex-start; }
+    .message-row.user { justify-content: flex-end; }
+    .msg-avatar { width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; }
+    .msg-avatar.bot-av { background: var(--accent-dim); color: var(--accent); }
+    .msg-avatar.user-av { background: var(--surface2); color: var(--text-muted); }
+    .bubble { max-width: 65%; padding: 10px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; }
+    .bubble.assistant { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .bubble.user { background: var(--surface2); border-bottom-right-radius: 4px; }
+    .msg-time { font-size: 10px; color: var(--text-dim); margin-top: 2px; padding: 0 4px; }
+
+    .alert-banner { background: var(--urgent-dim); border: 1px solid rgba(255,79,90,0.4); border-radius: 10px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .alert-title { font-weight: 600; color: var(--urgent); font-size: 13px; }
+    .alert-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    .chat-input-area { padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); }
+    .input-row { display: flex; gap: 10px; align-items: flex-end; }
+    .input-box { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; color: var(--text); font-family: var(--sans); font-size: 13px; resize: none; outline: none; transition: border-color 0.15s; min-height: 42px; }
+    .input-box:focus { border-color: var(--accent); }
+    .input-box::placeholder { color: var(--text-dim); }
+    .send-btn { width: 42px; height: 42px; border-radius: 10px; background: var(--accent); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+
+    .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; color: var(--text-muted); }
+    .empty-icon { font-size: 48px; opacity: 0.4; }
+    .empty-title { font-family: var(--serif); font-size: 22px; color: var(--text); opacity: 0.6; }
+
+    .loading { display: flex; align-items: center; justify-content: center; padding: 40px; color: var(--text-muted); font-size: 13px; gap: 8px; }
+
+    .toast { position: fixed; top: 70px; right: 20px; background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 10px; padding: 12px 16px; font-size: 13px; z-index: 200; transform: translateX(120%); transition: transform 0.3s ease; max-width: 280px; }
+    .toast.show { transform: translateX(0); }
+    .toast.urgent-toast { border-left-color: var(--urgent); }
+    .toast-title { font-weight: 600; margin-bottom: 4px; }
+    .toast-msg { color: var(--text-muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+
+<div class="toast" id="toast">
+  <div class="toast-title" id="toastTitle"></div>
+  <div class="toast-msg" id="toastMsg"></div>
+</div>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🧠</div>
+    <div class="logo-text">Mind<span>Bridge</span> Africa</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:16px">
+    <span style="font-size:12px;color:var(--text-muted)"><span class="dot"></span>Données en temps réel</span>
+    <div class="psy-avatar">Dr</div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-title">Vue d'ensemble</div>
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-number urgent" id="countUrgent">0</div>
+          <div class="stat-label">Urgences</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number active" id="countActive">0</div>
+          <div class="stat-label">Actifs</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number total" id="countTotal">0</div>
+          <div class="stat-label">Total</div>
+        </div>
+      </div>
+      <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div class="stat-card">
+          <div class="stat-number" style="color:var(--warn);font-size:16px" id="countOrientation">0</div>
+          <div class="stat-label">Orientés psy</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-number" style="color:#7d8fa8;font-size:16px" id="countPrisEnCharge">0</div>
+          <div class="stat-label">Pris en charge</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;background:var(--surface2);border-radius:8px;padding:10px;border:1px solid var(--border)">
+        <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">TAUX DE DÉTRESSE DÉTECTÉE</div>
+        <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+          <div id="tauxBarre" style="height:100%;background:linear-gradient(90deg,var(--accent),var(--urgent));width:0%;transition:width 0.5s;border-radius:3px"></div>
+        </div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:4px;text-align:right" id="tauxTexte">0%</div>
+      </div>
+    </div>
+    <div class="patient-list" id="patientList">
+      <div class="loading">⏳ Chargement des patients...</div>
+    </div>
+  </aside>
+
+  <main class="main" id="mainContent">
+    <div class="empty-state">
+      <div class="empty-icon">🧠</div>
+      <div class="empty-title">Sélectionnez un patient</div>
+      <p style="font-size:13px;opacity:0.5">Les données arrivent en temps réel depuis Firebase</p>
+    </div>
+  </main>
+</div>
+
+<script>
+  let currentPatient = null;
+
+  // ── Formater timestamp ──
+  function formatTime(ts) {
+    if (!ts) return '';
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    const now = new Date();
+    const diff = Math.floor((now - d) / 60000);
+    if (diff < 1) return 'À l\'instant';
+    if (diff < 60) return `Il y a ${diff} min`;
+    if (diff < 1440) return `Il y a ${Math.floor(diff/60)}h`;
+    return d.toLocaleDateString('fr-FR');
+  }
+
+  // ── Initiales depuis userId ──
+  function getInitiales(userId) {
+    const id = userId.replace('@lid','').replace('@c.us','');
+    return id.slice(-2).toUpperCase();
+  }
+
+  // ── Mettre à jour les stats ──
+  window.mettreAJourStats = (conversations) => {
+    const urgences = conversations.filter(c => c.urgence).length;
+    const orientation = conversations.filter(c => c.orientation_psy && !c.urgence).length;
+    const prisEnCharge = conversations.filter(c => c.priseEnCharge).length;
+    const actifs = conversations.filter(c => !c.urgence && !c.priseEnCharge).length;
+    const total = conversations.length;
+
+    document.getElementById('countUrgent').textContent = urgences;
+    document.getElementById('countActive').textContent = actifs;
+    document.getElementById('countTotal').textContent = total;
+    document.getElementById('countOrientation').textContent = orientation;
+    document.getElementById('countPrisEnCharge').textContent = prisEnCharge;
+
+    const taux = total > 0 ? Math.round(((urgences + orientation) / total) * 100) : 0;
+    document.getElementById('tauxBarre').style.width = taux + '%';
+    document.getElementById('tauxTexte').textContent = taux + '% des patients nécessitent un suivi';
+  };
+
+  // ── Afficher la liste des patients ──
+  window.afficherPatients = (conversations) => {
+    const list = document.getElementById('patientList');
+
+    if (conversations.length === 0) {
+      list.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px">Aucune conversation pour l\'instant</div>';
+      return;
+    }
+
+    const urgences = conversations.filter(c => c.urgence);
+    const normaux = conversations.filter(c => !c.urgence);
+
+    let html = '';
+
+    if (urgences.length > 0) {
+      html += '<div class="section-label">🚨 Urgences</div>';
+      urgences.forEach(c => {
+        const initiales = getInitiales(c.userId);
+        const isActive = currentPatient === c.userId;
+        html += `
+          <div class="patient-card urgent-card ${isActive ? 'active' : ''}" onclick="selectPatient('${c.userId}')">
+            <div class="patient-top">
+              <div class="patient-name-row">
+                <div class="avatar red">${initiales}</div>
+                <div>
+                  <div class="patient-name">Patient ${initiales}</div>
+                  <div class="patient-id">${c.userId.slice(0,15)}...</div>
+                </div>
+              </div>
+              <span class="badge urgent">Urgent</span>
+            </div>
+            <div class="patient-preview">${c.dernierMessage || '...'}</div>
+            <div class="patient-time">${formatTime(c.dernierContact)}</div>
+          </div>`;
+      });
+    }
+
+    if (normaux.length > 0) {
+      html += '<div class="section-label" style="margin-top:8px">💬 En conversation</div>';
+      normaux.forEach(c => {
+        const initiales = getInitiales(c.userId);
+        const isActive = currentPatient === c.userId;
+        const badgeClass = c.orientation_psy ? 'psy' : 'new';
+        const badgeLabel = c.orientation_psy ? 'Suivi' : 'Actif';
+        html += `
+          <div class="patient-card ${isActive ? 'active' : ''}" onclick="selectPatient('${c.userId}')">
+            <div class="patient-top">
+              <div class="patient-name-row">
+                <div class="avatar ${c.orientation_psy ? 'yellow' : 'green'}">${initiales}</div>
+                <div>
+                  <div class="patient-name">Patient ${initiales}</div>
+                  <div class="patient-id">${c.userId.slice(0,15)}...</div>
+                </div>
+              </div>
+              <span class="badge ${badgeClass}">${badgeLabel}</span>
+            </div>
+            <div class="patient-preview">${c.dernierMessage || '...'}</div>
+            <div class="patient-time">${formatTime(c.dernierContact)}</div>
+          </div>`;
+      });
+    }
+
+    list.innerHTML = html;
+  };
+
+  // ── Sélectionner un patient ──
+  window.selectPatient = (userId) => {
+    currentPatient = userId;
+    document.querySelectorAll('.patient-card').forEach(c => c.classList.remove('active'));
+    event.currentTarget.classList.add('active');
+
+    const main = document.getElementById('mainContent');
+    const initiales = getInitiales(userId);
+
+    main.innerHTML = `
+      <div class="chat-header">
+        <div class="chat-patient-info">
+          <div class="avatar green" style="width:38px;height:38px;font-size:14px">${initiales}</div>
+          <div>
+            <div class="chat-patient-name">Patient ${initiales}</div>
+            <div class="chat-patient-meta">💬 En conversation avec le bot · Temps réel</div>
+          </div>
+        </div>
+        <div class="chat-actions">
+          <button class="btn btn-ghost" onclick="orienterPatient('${userId}')">📋 Orienter</button>
+          <button class="btn btn-primary" onclick="prendreEnCharge('${userId}')">🚨 Intervenir</button>
+        </div>
+      </div>
+      <div class="chat-body" id="chatBody">
+        <div class="loading">⏳ Chargement des messages...</div>
+      </div>
+      <div class="chat-input-area">
+        <div class="input-row">
+          <textarea class="input-box" id="msgInput" placeholder="Écrire un message au patient via WhatsApp..." rows="1"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();envoyerMsg();}"></textarea>
+          <button class="send-btn" onclick="envoyerMsg()">➤</button>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:8px">Entrée pour envoyer · Ce message sera transmis sur WhatsApp du patient</div>
+      </div>`;
+
+    // Charger les vrais messages Firebase
+    window.chargerMessages(userId);
+  };
+
+  // ── Afficher les messages ──
+  window.afficherMessages = (messages, userId) => {
+    const body = document.getElementById('chatBody');
+    if (!body) return;
+
+    if (messages.length === 0) {
+      body.innerHTML = '<div style="text-align:center;color:var(--text-muted);font-size:13px;padding:40px">Aucun message dans cette conversation</div>';
+      return;
+    }
+
+    body.innerHTML = messages.map(m => {
+      const isUser = m.role === 'user';
+      const time = m.timestamp ? formatTime(m.timestamp) : '';
+      const initiales = getInitiales(userId);
+      return `
+        <div class="message-row ${m.role}">
+          ${!isUser ? '<div class="msg-avatar bot-av">🤖</div>' : ''}
+          <div>
+            <div class="bubble ${m.role}">${m.contenu || ''}</div>
+            <div class="msg-time" style="text-align:${isUser ? 'right' : 'left'}">${time}</div>
+          </div>
+          ${isUser ? `<div class="msg-avatar user-av">${initiales}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    body.scrollTop = body.scrollHeight;
+  };
+
+
+  // ── Envoyer message au patient via WhatsApp ──
+  window.envoyerMsg = async () => {
+    const input = document.getElementById('msgInput');
+    const text = input.value.trim();
+    if (!text || !currentPatient) return;
+    input.value = '';
+    try {
+      const res = await fetch('http://localhost:4000/api/envoyer-message', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentPatient, message: text }),
+      });
+      const data = await res.json();
+      if (data.succes) {
+        showToast('✅ Message envoyé', 'Le patient a reçu votre message sur WhatsApp', false);
+      } else {
+        showToast('❌ Erreur', data.erreur || 'Erreur inconnue', true);
+      }
+    } catch (err) {
+      showToast('❌ Erreur', 'Serveur inaccessible — vérifiez que node src/index.js tourne', true);
+    }
+  };
+
+  // ── Orienter vers psychologue ──
+  window.orienterPatient = async (userId) => {
+    try {
+      const res = await fetch('http://localhost:4000/api/orienter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json();
+      if (data.succes) {
+        showToast('📋 Patient orienté', 'Le patient a reçu un message d orientation sur WhatsApp', false);
+      } else {
+        showToast('❌ Erreur', data.erreur || 'Erreur inconnue', true);
+      }
+    } catch (err) {
+      showToast('❌ Erreur', 'Serveur inaccessible', true);
+    }
+  };
+
+  // ── Prendre en charge le patient ──
+  window.prendreEnCharge = async (userId) => {
+    try {
+      const res = await fetch('http://localhost:4000/api/prise-en-charge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json();
+      if (data.succes) {
+        showToast('🚨 Prise en charge', 'Le bot est en pause — vous pouvez écrire directement au patient', false);
+        const meta = document.querySelector('.chat-patient-meta');
+        if (meta) meta.innerHTML = '👨‍⚕️ Pris en charge par le psychologue · Bot en pause';
+      } else {
+        showToast('❌ Erreur', data.erreur || 'Erreur inconnue', true);
+      }
+    } catch (err) {
+      showToast('❌ Erreur', 'Serveur inaccessible', true);
+    }
+  };
+
+  // ── Toast ──
+  window.showToast = (title, msg, isUrgent) => {
+    const toast = document.getElementById('toast');
+    document.getElementById('toastTitle').textContent = title;
+    document.getElementById('toastMsg').textContent = msg;
+    toast.className = 'toast show' + (isUrgent ? ' urgent-toast' : '');
+    setTimeout(() => { toast.className = 'toast'; }, 3500);
+  };
+</script>
+</body>
+</html>
